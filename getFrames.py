@@ -4,10 +4,26 @@ import os
 import numpy as np
 import re
 import sys
-
+import time
 
 # Define a list of common video file extensions
 video_extensions = [".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".mpeg", ".mpg"]
+def safeVideoCapture(path):
+    """Try opening video safely, return cap if ok, else None."""
+    cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        cap.release()
+        return None
+
+    # Try reading one frame to confirm it's not corrupted
+    ret, _ = cap.read()
+    if not ret:
+        cap.release()
+        return None
+
+    # Reset to beginning since we consumed one frame
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+    return cap
 
 
 class getVidsFrames:
@@ -53,28 +69,57 @@ class getVidsFrames:
                 frames.append(frame)
         return frames
 
-    def getFileThumnail(self, path):
+
+
+    # def getFileThumbnail(self, path):
+    #     parpath, filename = os.path.split(path)
+    #     filename, _ = os.path.splitext(filename)
+
+    #     # Check if the thumnailsDir directory exists; if not, create it
+    #     thumnailsDir = os.path.join(parpath, "Thumnails")
+    #     if not os.path.exists(thumnailsDir):
+    #         os.makedirs(thumnailsDir)
+
+    #     thumnailpath = os.path.join(parpath, "Thumnails", f"{filename}.png")
+    #     # generate thumbnail only if thumbnail doesn't exist and video file is open
+    #     cap = cv2.VideoCapture(path)
+    #     if not os.path.exists(thumnailpath) and cap.isOpened():
+    #         imgs = self.getImages(cap)
+    #         if imgs:
+    #             nrow, ncol = self.layout(self.n)
+    #             result = self.stackImgs(imgs, nrow, ncol)
+
+    #             cv2.imwrite(
+    #                 thumnailpath,
+    #                 self.compressImage(result),
+    #             )
+    #     cap.release()
+
+    def getFileThumbnail(self, path):
         parpath, filename = os.path.split(path)
         filename, _ = os.path.splitext(filename)
 
-        # Check if the thumnailsDir directory exists; if not, create it
-        thumnailsDir = os.path.join(parpath, "Thumnails")
-        if not os.path.exists(thumnailsDir):
-            os.makedirs(thumnailsDir)
+        thumbnailsDir = os.path.join(parpath, "Thumbnails")
+        os.makedirs(thumbnailsDir, exist_ok=True)
 
-        thumnailpath = os.path.join(parpath, "Thumnails", f"{filename}.png")
-        # generate thumbnail only if thumbnail doesn't exist and video file is open
-        cap = cv2.VideoCapture(path)
-        if not os.path.exists(thumnailpath) and cap.isOpened():
+        thumbnailPath = os.path.join(thumbnailsDir, f"{filename}.png")
+
+        if os.path.exists(thumbnailPath):
+            return  # already exists
+
+        cap = safeVideoCapture(path)
+        if cap is None:
+            print(f"Skipping corrupted file: {path}")
+            return
+
+        try:
             imgs = self.getImages(cap)
-            nrow, ncol = self.layout(self.n)
-            result = self.stackImgs(imgs, nrow, ncol)
-
-            cv2.imwrite(
-                thumnailpath,
-                self.compressImage(result),
-            )
-        cap.release()
+            if imgs:
+                nrow, ncol = self.layout(self.n)
+                result = self.stackImgs(imgs, nrow, ncol)
+                cv2.imwrite(thumbnailPath, self.compressImage(result))
+        finally:
+            cap.release()
 
     def compressImage(self, original_array, max_dim_size=2000):
         if original_array.shape[0] < 2000 and original_array.shape[1] < 2000:
@@ -96,15 +141,15 @@ class getVidsFrames:
         return downsampled_array
 
     def run(self):
-        path = os.path.normpath(self.path.replace(r"\ ", " ").replace("'", ""))
+        path = os.path.normpath(self.path.strip().replace("\\", "").replace(r"\ ", " ").replace("'", ""))
         if os.path.exists(path):
             if os.path.isfile(path):
                 print(f"{path} is a file.")
-                self.getFileThumnail(path)
+                self.getFileThumbnail(path)
             elif os.path.isdir(path):
                 print(f"{path} is a directory.")
                 for root, dirs, files in os.walk(path):
-                    for file in files:
+                    for file in sorted(files):
                         file_path = os.path.join(root, file)
                         file_extension = os.path.splitext(file_path)[1].lower()
 
@@ -112,8 +157,9 @@ class getVidsFrames:
                         if file_extension in video_extensions and not os.path.basename(
                             file
                         ).startswith("."):
-                            self.getFileThumnail(file_path)
-                            print(f"Generated thumnails for '{file_path}'.")
+                            print(f"Generating thumbnails for '{file_path}'.")
+                            self.getFileThumbnail(file_path)
+                            
         else:
             print(f"{path} does not exist.")
 
